@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI-Powered Flashcard System</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        h1, h2 {
+            text-align: center;
+        }
+        textarea {
+            width: 100%;
+            height: 150px;
+            margin-bottom: 10px;
+        }
+        #flashcard {
+            border: 1px solid #ccc;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        .hidden {
+            display: none;
+        }
+        #loading, #error {
+            text-align: center;
+            font-weight: bold;
+        }
+        #error {
+            color: red;
+        }
+        .feedback {
+            margin-top: 10px;
+            font-weight: bold;
+        }
+        button {
+            margin: 5px;
+            padding: 5px 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>AI-Powered Flashcard System</h1>
+    <form id="flashcardForm">
+        <textarea id="textInput" placeholder="Enter your text here..."></textarea>
+        <div>
+            <label for="pdfInput">Or upload a PDF: </label>
+            <input type="file" id="pdfInput" accept=".pdf">
+        </div>
+        <button type="submit">Generate Flashcards</button>
+    </form>
+    
+    <p id="loading" class="hidden">Generating flashcards, please wait...</p>
+    <p id="error" class="hidden"></p>
+    
+    <div id="flashcard" class="hidden">
+        <h2>Flashcard <span id="currentCardNum"></span> of <span id="totalCards"></span></h2>
+        <p><strong>Question:</strong> <span id="question"></span></p>
+        <input type="text" id="studentAnswer" placeholder="Type your answer here...">
+        <button id="checkAnswer">Check Answer</button>
+        <p id="feedback" class="hidden"></p>
+        <p id="answerContainer" class="hidden"><strong>Correct Answer:</strong> <span id="answer"></span></p>
+        <button id="toggleAnswer">Show Correct Answer</button>
+        <button id="prevCard">Previous</button>
+        <button id="nextCard">Next</button>
+    </div>
+
+    <script>
+        const form = document.getElementById('flashcardForm');
+        const textInput = document.getElementById('textInput');
+        const pdfInput = document.getElementById('pdfInput');
+        const flashcardDiv = document.getElementById('flashcard');
+        const questionSpan = document.getElementById('question');
+        const answerSpan = document.getElementById('answer');
+        const answerContainer = document.getElementById('answerContainer');
+        const toggleAnswerBtn = document.getElementById('toggleAnswer');
+        const prevCardBtn = document.getElementById('prevCard');
+        const nextCardBtn = document.getElementById('nextCard');
+        const currentCardNumSpan = document.getElementById('currentCardNum');
+        const totalCardsSpan = document.getElementById('totalCards');
+        const loadingIndicator = document.getElementById('loading');
+        const errorDisplay = document.getElementById('error');
+        const studentAnswerInput = document.getElementById('studentAnswer');
+        const feedbackSpan = document.getElementById('feedback');
+        const checkAnswerBtn = document.getElementById('checkAnswer');
+
+        let flashcards = [];
+        let currentCardIndex = 0;
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            resetUI();
+
+            if (pdfInput.files.length === 0 && !textInput.value.trim()) {
+                showError('Please enter text or upload a PDF.');
+                return;
+            }
+
+            let formData = new FormData();
+            if (pdfInput.files.length > 0) {
+                formData.append('file', pdfInput.files[0]);
+            } else {
+                formData.append('text', textInput.value);
+            }
+
+            loadingIndicator.classList.remove('hidden');
+
+            try {
+                const response = await fetch('/api/generate-flashcards', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                console.log('Raw response from server:', data);
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                flashcards = data.flashcards;
+                console.log('Received flashcards:', flashcards);
+
+                if (!Array.isArray(flashcards) || flashcards.length === 0) {
+                    throw new Error('No valid flashcards were generated.');
+                }
+
+                currentCardIndex = 0;
+                updateFlashcardDisplay();
+                flashcardDiv.classList.remove('hidden');
+            } catch (error) {
+                console.error('Error generating flashcards:', error);
+                showError(`Error generating flashcards: ${error.message}`);
+            } finally {
+                loadingIndicator.classList.add('hidden');
+            }
+        });
+
+        function updateFlashcardDisplay() {
+            const currentCard = flashcards[currentCardIndex];
+            console.log('Displaying flashcard:', currentCard);
+
+            if (!currentCard) {
+                showError('No flashcard data available');
+                return;
+            }
+
+            questionSpan.textContent = currentCard.Question || 'No question available';
+            answerSpan.textContent = currentCard.Answer || 'No answer available';
+
+            answerContainer.classList.add('hidden');
+            toggleAnswerBtn.textContent = 'Show Correct Answer';
+
+            currentCardNumSpan.textContent = currentCardIndex + 1;
+            totalCardsSpan.textContent = flashcards.length;
+
+            prevCardBtn.disabled = currentCardIndex === 0;
+            nextCardBtn.disabled = currentCardIndex === flashcards.length - 1;
+
+            studentAnswerInput.value = '';
+            feedbackSpan.classList.add('hidden');
+        }
+
+        checkAnswerBtn.addEventListener('click', async () => {
+            const studentAnswer = studentAnswerInput.value.trim();
+            const correctAnswer = flashcards[currentCardIndex].Answer;
+
+            if (!studentAnswer) {
+                showError('Please enter your answer before checking.');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/check-answer', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        studentsAnswer: studentAnswer,
+                        correctAnswer: correctAnswer
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const result = await response.json();
+                feedbackSpan.textContent = result.feedback;
+                feedbackSpan.classList.remove('hidden');
+            } catch (error) {
+                console.error('Error checking answer:', error);
+                showError(`Error checking answer: ${error.message}`);
+            }
+        });
+
+        toggleAnswerBtn.addEventListener('click', () => {
+            answerContainer.classList.toggle('hidden');
+            toggleAnswerBtn.textContent = answerContainer.classList.contains('hidden') ? 'Show Correct Answer' : 'Hide Correct Answer';
+        });
+
+        prevCardBtn.addEventListener('click', () => {
+            if (currentCardIndex > 0) {
+                currentCardIndex--;
+                updateFlashcardDisplay();
+            }
+        });
+
+        nextCardBtn.addEventListener('click', () => {
+            if (currentCardIndex < flashcards.length - 1) {
+                currentCardIndex++;
+                updateFlashcardDisplay();
+            }
+        });
+
+        function resetUI() {
+            flashcardDiv.classList.add('hidden');
+            errorDisplay.classList.add('hidden');
+            loadingIndicator.classList.add('hidden');
+        }
+
+        function showError(message) {
+            errorDisplay.textContent = message;
+            errorDisplay.classList.remove('hidden');
+        }
+    </script>
+</body>
+</html>
